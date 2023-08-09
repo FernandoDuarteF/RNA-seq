@@ -100,4 +100,59 @@ wget ftp://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/cds/Homo_sapiens.GR
 wget ftp://ftp.ensembl.org/pub/release-99/gtf/homo_sapiens/Homo_sapiens.GRCh38.99.chr.gtf.gz
 ```
 
+### 01/08/2023
 
+In the case of splice junctions, it is necessary, when building an index, to let STAR know the maximum number of bp for the overhang (maximum lenght of the donnor/acceptor sequence on each side of the junctions), which would be the read lenght - 1. For more information look how STAR deals with splice junctions. Note that depeding on the read lenght a value of 100bp might suffice. You can use the next line to check the read length distribution:
+
+```
+zcat SRR7939021-trimmed-pair1.fastq.gz | awk '{if(NR%4==2) print length($1)}' | sort -n | uniq -c | less
+```
+
+Check again how skwer works, there is a difference in size distributions between the trimmed and untrimmed sequences. All reads before trimming have a size of 101bp, this changes after trimming, where reads diffrenret sizes (some of 31bp) can be seen.
+
+Since most the reads have a lenght of 101, the deafault value for ```--sjdbOverhang``` will suffice. To index the reference genome using star use this line:
+
+```
+qsub scripts/singularity/star_index.sh reference/Homo_sapiens.GRCh38.dna_rm.primary_assembly.fa reference/Homo_sapiens.GRCh38.99.chr.gtf
+```
+
+### 02/08/2023
+
+Run STAR using the next line:
+
+```
+for i in outfolder/trimmed_reads/*-pair1.fastq.gz; do qsub scripts/singularity/star.sh GRCh38_index $i; done
+```
+
+This will also output the counts for the genes for the three types of protcols: unstranded (2nd column), stranded-forward (3rd column), stranded-reverse (4th column).
+
+To check the strandness of the samples, you can check dtge N_noFeature field and also use the follwoing:
+
+```
+grep -v "N_" outfolder/STAR/SRR7939021ReadsPerGene.out.tab | awk '{unst+=$2;forw+=$3;rev+=$4}END{print unst,forw,rev}'
+```
+
+If there is an imbalance between read1 and read2, then the protocol is stranded. The stranded column with the lowest N_noFeature count corresponds to the correct strand option.
+
+### 07/08/2023
+
+Run salmon
+
+Apparently there is a problem with using ENSEMBL cDNA to build the index. Use GENCODE instead (view https://support.bioconductor.org/p/p134094/#p134255).
+
+Downlaoded necessary files from gencode using:
+
+```
+wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/gencode.v44.transcripts.fa.gz
+wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/gencode.v44.annotation.gtf.gz
+```
+
+### 09/08/2023
+
+Salmon can be run using:
+
+```
+for i in outfolder/trimmed_reads/*-pair1.fastq.gz; do qsub scripts/singularity/salmon.sh index_salmon $i reference/gencode.v44.annotation.gtf.gz A; done
+```
+
+Note that option A is set for ``-l`` (library type), which mean that the library type will be automatically inferred. In this case library is ISR, which is consisten with STAR's output for counts.
